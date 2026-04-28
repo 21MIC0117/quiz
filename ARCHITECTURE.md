@@ -1,148 +1,102 @@
-# Architecture
+# Architecture Overview
 
-## Goal
+## Structure
 
-Build a flexible quiz system on Laravel where new question types can be added with a single class, and where evaluation logic isn't sprinkled across the codebase.
+The application follows Laravel’s MVC pattern:
 
-## Stack choices
+* Models → Handle database interaction (Quiz, Question, Attempt, Answer, Option)
+* Controllers → Handle request flow (QuizController, QuestionController, AttemptController)
+* Views → Blade templates for UI
 
-- **Laravel 11** — modern, well-known PHP framework. The assignment evaluates exactly the patterns Laravel encourages: layered controllers, Eloquent relationships, Blade composition, service providers for plugins.
-- **SQLite via Eloquent** — zero-setup file database, perfect for an assignment, ships with Laravel as the default.
-- **PHP built-in server** — used by `php artisan serve`; no Apache/Nginx config required.
+---
 
-## Layered structure
+## Key Design Decisions
 
-```
-HTTP request
-   │
-   ▼
-public/index.php  ── Laravel front controller
-   │
-   ▼
-routes/web.php  ── matches METHOD + path → controller method
-   │
-   ▼
-Controller  ── pulls request data, talks to Eloquent models, picks a Question Type, renders a Blade view
-   │
-   ▼
-Eloquent model  ── relationships, casts, auto-timestamps
-   │
-   ▼
-SQLite (database/database.sqlite)
-```
+### 1. Separation of Question Types
 
-Blade views under `resources/views/` extend a single `layouts/app.blade.php` master template.
+Instead of handling all question logic in one place, different question types are implemented as separate classes:
 
-## Data model
+* BinaryType
+* SingleChoiceType
+* MultipleChoiceType
+* NumberInputType
+* TextInputType
 
-| Table     | Purpose                                                         |
-| --------- | --------------------------------------------------------------- |
-| `quizzes` | quiz metadata                                                   |
-| `questions` | one row per question, including `type`, `prompt`, `marks`, `image_path`, `video_url`, and a `config` JSON column for type-specific settings |
-| `options` | rows for choice-style questions (binary, single, multiple). Each has a label, optional image, and an `is_correct` flag. |
-| `attempts` | one row per quiz attempt with `total_score` and `max_score`     |
-| `answers` | per-attempt, per-question response stored as JSON (cast to array on read), plus the `awarded_marks` for that response |
+Each type follows a common interface.
 
-Two columns deserve a note:
+This avoids large conditional blocks and makes the system easier to extend.
 
-- `questions.config` (JSON) holds whatever type-specific settings the type needs (e.g. for `number_input`: `{correct, tolerance}`; for `text_input`: `{correct, case_sensitive}`). The schema doesn't grow when a new type is added.
-- `answers.response` (JSON) stores the raw submitted response. Because the response is a JSON-encoded scalar/array, every type can be evaluated and rendered uniformly without per-type columns.
+---
 
-`->cascadeOnDelete()` on every foreign key keeps cleanup simple — deleting a quiz deletes its questions, options, attempts, and answers.
+### 2. QuestionType Registry
 
-Eloquent relationships defined on the models:
+A registry pattern is used (`QuestionTypeRegistry`) to map question types to their respective handlers.
 
-- `Quiz` `hasMany` `Question` (ordered) and `Attempt` (newest first)
-- `Question` `belongsTo` `Quiz` and `hasMany` `Option` (ordered)
-- `Attempt` `belongsTo` `Quiz` and `hasMany` `Answer`
-- `Answer` `belongsTo` `Attempt` and `Question`
+This allows:
 
-## The Question Type plugin contract
+* Dynamic resolution of question logic
+* Easier addition of new types without modifying existing code
 
-This is the assignment's central design problem and the heart of the design.
+---
 
-```php
-interface QuestionTypeInterface
-{
-    public function key(): string;                 // 'single_choice'
-    public function label(): string;               // 'Single Choice'
-    public function usesOptions(): bool;           // do we write rows in `options`?
-    public function renderEditorFields(): string;
-    public function buildFromRequest(Request $r): array;   // {config, options}
-    public function renderAttemptInput(Question $q, string $name): string;
-    public function evaluate(Question $q, mixed $response): float;
-    public function renderResponseSummary(Question $q, mixed $response): string;
-}
-```
+### 3. Use of Interface and Abstract Class
 
-A type owns four lifecycle moments:
+* `QuestionTypeInterface` defines required behavior
+* `AbstractQuestionType` provides shared logic
 
-1. **Editor** — what extra fields show in the question creator (correct number, tolerance, options list, etc.)
-2. **Persistence** — translating the submitted form into a `config` array and `options` rows.
-3. **Attempt** — what the candidate sees during the quiz.
-4. **Evaluation** — given the candidate's response, return the marks. Plus a small render helper for the result page.
+This reduces duplication and keeps implementations consistent.
 
-`QuestionTypeRegistry` is bound as a singleton by `QuestionTypeServiceProvider`. Every type is registered there. Controllers ask for the registry through Laravel's service container (constructor injection).
+---
 
-### Why this matters (extensibility)
+### 4. Database Design
 
-The assignment explicitly forbids "hardcoded or non-extensible logic". Concretely:
+Main entities:
 
-- The **controllers don't know** which type they're handling — they just call `$type->buildFromRequest()` and `$type->evaluate()`.
-- The **Blade views don't know** either — they render whatever `$type->renderEditorFields()`, `$type->renderAttemptInput()`, and `$type->renderResponseSummary()` return.
-- The **evaluator** is a 4-line loop in `AttemptController::submit()` that delegates to `$type->evaluate()`.
-- The **database schema** doesn't change when a new type is added — `config` and `response` JSON columns absorb anything new.
+* Quiz → contains multiple questions
+* Question → linked to quiz
+* Option → used for choice-based questions
+* Attempt → tracks quiz attempts
+* Answer → stores user responses
 
-Adding a new type is exactly two steps:
+Relationships are handled using Eloquent ORM.
 
-1. Add a class under `app/QuestionTypes/` implementing the interface.
-2. Add a single `$registry->register(new MyType())` line in `QuestionTypeServiceProvider`.
+---
 
-No `switch` statement, no Blade branching, no migration.
+### 5. Controller Responsibilities
 
-### Worked example: imagine adding `OrderingType` (drag to reorder)
+Controllers handle:
 
-- Implement the interface — store the correct order in `config`, render an editor that lets the author list items, render an attempt UI (e.g., numbered selects), and evaluate by comparing arrays.
-- Register it. Done.
+* Request validation
+* Passing data to models
+* Coordinating flow between quiz creation and attempts
 
-The rest of the system — quizzes, attempts, scoring, results — needs zero changes.
+Some logic was simplified to keep controllers readable.
 
-## Evaluation logic
+---
 
-`AttemptController::submit()` is intentionally trivial:
+## Extensibility
 
-```php
-foreach ($quiz->questions as $q) {
-    $maxScore += $q->marks;
-    $type      = $this->registry->get($q->type);
-    $response  = $request->input('answer_' . $q->id);
-    $awarded   = $type->evaluate($q, $response);
-    $totalScore += $awarded;
-    $records[] = compact('q', 'response', 'awarded') + [...];
-}
-```
+The system is designed to allow:
 
-Per-type rules live inside each `evaluate()`:
+* Adding new question types by creating a new class and registering it
+* Extending quiz features without modifying existing structure
+* Scaling logic into services if needed
 
-- **Binary / Single Choice** — chosen option must be `is_correct`.
-- **Multiple Choice** — sorted set of chosen option IDs must equal sorted set of correct option IDs (no partial credit, all-or-nothing).
-- **Number Input** — `|response − correct| ≤ tolerance`.
-- **Text Input** — exact match (case-sensitive optionally).
+---
 
-Each rule is local to its class so it's easy to find, change, and unit-test.
+## Limitations
 
-## Scores view
+* No dedicated service layer yet
+* Limited validation in some areas
+* UI is basic
 
-The quiz show page lists every attempt for that quiz in a Scores section: name (or "Anonymous"), score, percentage, submission timestamp, and a link to the full per-question breakdown. The data is loaded with the quiz via the `attempts` relationship and rendered alongside the quiz's questions.
+---
 
-## Media handling
+## Future Improvements
 
-- Images are uploaded as standard `multipart/form-data` and stored on the public disk via `$file->store('uploads', 'public')`. Only the relative path is stored in the DB; the public URL is `asset('storage/<path>')` thanks to `php artisan storage:link`.
-- Video URLs are stored as plain strings — no embedding logic, just a link to the source (assignment explicitly mentions YouTube as the use case).
+* Introduce service layer for better separation
+* Add API endpoints
+* Improve validation and error handling
+* Add user authentication
 
-## Trade-offs and known limits
-
-- No authentication — the assignment explicitly states it isn't required.
-- No editing of an existing question (only create/delete). Editing would follow the same pattern: a `renderEditorFields($question)` overload that pre-fills values, plus an `update` controller method.
-- No partial credit on `multiple_choice` — common requirement variants (e.g. proportional marks per correct selection) would be a single change inside `MultipleChoiceType::evaluate()` without touching anything else.
-- Single shared layout template; no front-end build pipeline (no Vite or Tailwind) so the focus stays on the back-end design.
+---
