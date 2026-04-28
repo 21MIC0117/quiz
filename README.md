@@ -1,87 +1,99 @@
-# Laravel Quiz
+# Laravel Quiz Application
 
-A small Laravel 11 application that lets you build quizzes, mix question types, take attempts, and see scored results. Uses SQLite for storage and the standard Laravel toolchain (Eloquent, Blade, Artisan).
+## Overview
+
+This is a Laravel-based quiz application that allows users to create quizzes, add different types of questions, and attempt quizzes.
+
+The system supports multiple question formats such as:
+
+* Single choice
+* Multiple choice
+* Binary (true/false)
+* Text input
+* Number input
+
+The goal of this project was to build a flexible quiz system where question types can be extended without major changes to the core logic.
+
+---
 
 ## Features
 
-- Create quizzes with title and description
-- Add questions of five types — easily extensible to more:
-  - Binary (True / False)
-  - Single Choice
-  - Multiple Choice
-  - Number Input (with tolerance)
-  - Text Input (case-sensitive optional)
-- Rich-text question prompts, image upload, and YouTube/video URL per question
-- Image-or-text options for choice questions
-- Take a quiz and submit answers
-- Automatic scoring (per-question marks, default 1)
-- Results page with per-question breakdown
-- Per-quiz Scores list showing every past attempt (name, score, %, timestamp) with a link to the full per-question breakdown
+* Create and manage quizzes
+* Add questions with different types
+* Attempt quizzes
+* Store user answers and attempts
+* Display results after submission
 
-## Requirements
+---
 
-- PHP 8.2+ with the `pdo_sqlite`, `sqlite3`, `mbstring`, and `openssl` extensions
-- [Composer](https://getcomposer.org/)
+## Tech Stack
 
-## Run locally
+* Backend: Laravel (PHP)
+* Database: MySQL / SQLite
+* Frontend: Blade templates
+* ORM: Eloquent
 
-```bash
-cd laravel-quiz
-composer install
-cp .env.example .env          # if .env doesn't already exist
-php artisan key:generate
-php artisan migrate
-php artisan storage:link
-php artisan serve --host=0.0.0.0 --port=8000
-```
+---
 
-Then open http://localhost:8000.
+## Setup Instructions
 
-> The project ships with a pre-generated `.env`, an empty SQLite database, and the storage symlink already created, so you usually only need `composer install` and `php artisan serve`.
+### Requirements
 
-## Project layout
+* PHP 8+
+* Composer
+* MySQL / SQLite
 
-```
-laravel-quiz/
-├── app/
-│   ├── Http/Controllers/
-│   │   ├── QuizController.php
-│   │   ├── QuestionController.php
-│   │   └── AttemptController.php
-│   ├── Models/
-│   │   ├── Quiz.php
-│   │   ├── Question.php
-│   │   ├── Option.php
-│   │   ├── Attempt.php
-│   │   └── Answer.php
-│   ├── QuestionTypes/                  # extensible plugin layer
-│   │   ├── QuestionTypeInterface.php
-│   │   ├── AbstractQuestionType.php
-│   │   ├── BinaryType.php
-│   │   ├── SingleChoiceType.php
-│   │   ├── MultipleChoiceType.php
-│   │   ├── NumberInputType.php
-│   │   ├── TextInputType.php
-│   │   └── QuestionTypeRegistry.php
-│   └── Providers/
-│       └── QuestionTypeServiceProvider.php
-├── database/
-│   ├── migrations/                     # 5 quiz-domain migrations
-│   └── database.sqlite                 # auto-created
-├── resources/views/
-│   ├── layouts/app.blade.php
-│   ├── quizzes/{index,create,show}.blade.php
-│   ├── questions/create.blade.php
-│   └── attempts/{take,result}.blade.php
-├── routes/web.php
-└── public/style.css
-```
+---
 
-## Adding a new question type
+### Installation Steps
 
-See `ARCHITECTURE.md` for the full design rationale. In short:
+1. Clone the repository
+   git clone https://github.com/your-username/laravel-quiz.git
 
-1. Create a new class under `app/QuestionTypes/` implementing `QuestionTypeInterface` (or extending `AbstractQuestionType`).
-2. Register it inside `app/Providers/QuestionTypeServiceProvider::register()`.
+2. Navigate into project
+   cd laravel-quiz
 
-That's the only change needed. Nothing in the controllers, Blade views, evaluator, or database touches type-specific code.
+3. Install dependencies
+   composer install
+
+4. Setup environment
+   cp .env.example .env
+
+5. Generate application key
+   php artisan key:generate
+
+6. Configure database in `.env.example`
+
+7. Run migrations
+   php artisan migrate
+
+8. Start the server
+   php artisan serve
+
+---
+
+## Usage
+
+* Visit: http://localhost:8000
+* Create a quiz
+* Add questions
+* Attempt the quiz
+* View results
+
+---
+
+## Notes
+
+* Question handling logic evolved during development, especially for supporting multiple types.
+* Some parts were refactored to improve flexibility when adding new question formats.
+
+---
+
+## Future Improvements
+
+* Add authentication system
+* Improve UI/UX
+* Add API support
+* Add timer-based quizzes
+
+---
